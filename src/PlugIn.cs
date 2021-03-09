@@ -342,6 +342,8 @@ namespace Landis.Extension.BaseBDA
                 int randNum = (int)activeAgent.NormMean;
                 if (!(activeAgent.NormStDev == 0))
                 {
+                    PlugIn.ModelCore.UI.WriteLine(
+                        $"Agent '{activeAgent.AgentName}': NormMean={activeAgent.NormMean} NormStDev={activeAgent.NormStDev}");
                     PlugIn.ModelCore.NormalDistribution.Mu = activeAgent.NormMean;
                     PlugIn.ModelCore.NormalDistribution.Sigma = activeAgent.NormStDev;
 

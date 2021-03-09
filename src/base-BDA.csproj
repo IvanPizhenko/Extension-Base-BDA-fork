@@ -51,6 +51,10 @@
     </Reference>
   </ItemGroup>
 
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="$(ProjectDir)postbuild.bat $(Configuration)" />
+  </Target>
+
 </Project>
 
 
