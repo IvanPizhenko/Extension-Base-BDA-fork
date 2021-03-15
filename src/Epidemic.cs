@@ -4,7 +4,9 @@
 using Landis.Core;
 using Landis.Library.AgeOnlyCohorts;
 using Landis.SpatialModeling;
+
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Landis.Extension.BaseBDA
 {
@@ -12,21 +14,37 @@ namespace Landis.Extension.BaseBDA
         : ICohortDisturbance
 
     {
-        private static IEcoregionDataset ecoregions;
+        public class KillResult
+        {
+            public readonly int CohortsKilled;
+            public readonly int CFSConifersKilled;
+            public readonly long BiomassKilled;
 
-        private IAgent epidemicParms;
-        private int totalSitesDamaged;
-        private int totalCohortsKilled;
-        private double meanSeverity;
-        private int siteSeverity;
-        private double random;
-        private double siteVulnerability;
-        //private int advRegenAgeCutoff;
-        private int siteCohortsKilled;
-        private int siteCFSconifersKilled;
-        private int[] sitesInEvent;
+            public KillResult(int cohortsKilled, int cfsConifersKilled, long biomassKilled)
+            {
+                CohortsKilled = cohortsKilled;
+                CFSConifersKilled = cfsConifersKilled;
+                BiomassKilled = biomassKilled;
+            }
+        }
 
-        private ActiveSite currentSite; // current site where cohorts are being damaged
+        private static IEcoregionDataset _ecoregions;
+        private IAgent _epidemicParms;
+        private int _totalSitesDamaged;
+        private int _totalCohortsKilled;
+        private double _meanSeverity;
+        private long _totalBiomassKilled;
+        private int _siteSeverity;
+        private double _random;
+        private double _siteVulnerability;
+        //private int _advRegenAgeCutoff;
+        private int _siteCohortsKilled;
+        private int _siteCFSConifersKilled;
+        private long _biomassKilled;
+        private long _biomassCohortCount;
+        private int[] _sitesInEvent;
+
+        private ActiveSite _currentSite; // current site where cohorts are being damaged
 
         private enum TempPattern        {random, cyclic};
         private enum NeighborShape      {uniform, linear, gaussian};
@@ -36,16 +54,10 @@ namespace Landis.Extension.BaseBDA
 
         //---------------------------------------------------------------------
 
-        static Epidemic()
-        {
-        }
-
-        //---------------------------------------------------------------------
-
         public int[] SitesInEvent
         {
             get {
-                return sitesInEvent;
+                return _sitesInEvent;
             }
         }
 
@@ -54,7 +66,17 @@ namespace Landis.Extension.BaseBDA
         public int CohortsKilled
         {
             get {
-                return totalCohortsKilled;
+                return _totalCohortsKilled;
+            }
+        }
+
+        //---------------------------------------------------------------------
+
+        public long TotalBiomassKilled
+        {
+            get
+            {
+                return _totalBiomassKilled;
             }
         }
 
@@ -63,7 +85,7 @@ namespace Landis.Extension.BaseBDA
         public double MeanSeverity
         {
             get {
-                return meanSeverity;
+                return _meanSeverity;
             }
         }
 
@@ -72,7 +94,7 @@ namespace Landis.Extension.BaseBDA
         public int TotalSitesDamaged
         {
             get {
-                return totalSitesDamaged;
+                return _totalSitesDamaged;
             }
         }
         //---------------------------------------------------------------------
@@ -89,7 +111,7 @@ namespace Landis.Extension.BaseBDA
         ActiveSite IDisturbance.CurrentSite
         {
             get {
-                return currentSite;
+                return _currentSite;
             }
         }
         //---------------------------------------------------------------------
@@ -98,7 +120,7 @@ namespace Landis.Extension.BaseBDA
         {
             get
             {
-                return epidemicParms;
+                return _epidemicParms;
             }
         }
 
@@ -112,7 +134,7 @@ namespace Landis.Extension.BaseBDA
         {
             PlugIn.ModelCore.UI.WriteLine("   Initializing agent {0}.", agent.AgentName);
 
-            ecoregions = PlugIn.ModelCore.Ecoregions;
+            _ecoregions = PlugIn.ModelCore.Ecoregions;
 
 
             //.ActiveSiteValues allows you to reset all active site at once.
@@ -185,13 +207,14 @@ namespace Landis.Extension.BaseBDA
         // Epidemic Constructor
         private Epidemic(IAgent agent)
         {
-            this.sitesInEvent = new int[ecoregions.Count];
-            foreach(IEcoregion ecoregion in ecoregions)
-                this.sitesInEvent[ecoregion.Index] = 0;
-            this.epidemicParms = agent;
-            this.totalCohortsKilled = 0;
-            this.meanSeverity = 0.0;
-            this.totalSitesDamaged = 0;
+            _sitesInEvent = new int[_ecoregions.Count];
+            foreach(IEcoregion ecoregion in _ecoregions)
+                _sitesInEvent[ecoregion.Index] = 0;
+            _epidemicParms = agent;
+            _totalCohortsKilled = 0;
+            _meanSeverity = 0.0;
+            _totalSitesDamaged = 0;
+            _biomassCohortCount = 0;
 
             //PlugIn.ModelCore.Log.WriteLine("New Agent event");
         }
@@ -201,16 +224,14 @@ namespace Landis.Extension.BaseBDA
         //Site Vulnerability.
         private void DisturbSites(IAgent agent)
         {
+            _totalBiomassKilled = 0;
             int totalSiteSeverity = 0;
-            int siteCohortsKilled = 0;
-            int[] cohortsKilled = new int[2];
             //this.advRegenAgeCutoff = agent.AdvRegenAgeCutoff;
 
             foreach (ActiveSite site in PlugIn.ModelCore.Landscape)
             {
-                siteCohortsKilled = 0;
-                this.siteSeverity = 0;
-                this.random = 0;
+                _siteSeverity = 0;
+                _random = 0;
 
                 double myRand = PlugIn.ModelCore.GenerateUniform();
 
@@ -220,71 +241,67 @@ namespace Landis.Extension.BaseBDA
                     //PlugIn.ModelCore.Log.WriteLine("Zone={0}, agent.OutbreakZone={1}", Zone.Newzone.ToString(), agent.OutbreakZone[site]);
                     //PlugIn.ModelCore.Log.WriteLine("Vulnerability={0}, Randnum={1}", SiteVars.Vulnerability[site], PlugIn.ModelCore.GenerateUniform());
                     double vulnerability = SiteVars.Vulnerability[site];
+                    if(vulnerability >= 0) _siteSeverity= 1;
+                    if(vulnerability >= agent.Class2_SV) _siteSeverity= 2;
+                    if(vulnerability >= agent.Class3_SV) _siteSeverity= 3;
 
-                    if(vulnerability >= 0) this.siteSeverity= 1;
+                    _random = myRand;
+                    _siteVulnerability = SiteVars.Vulnerability[site];
 
-                    if(vulnerability >= agent.Class2_SV) this.siteSeverity= 2;
-
-                    if(vulnerability >= agent.Class3_SV) this.siteSeverity= 3;
-
-                    this.random = myRand;
-                    this.siteVulnerability = SiteVars.Vulnerability[site];
-
-                    if(this.siteSeverity > 0)
-                        cohortsKilled = KillSiteCohorts(site);
-
-                    siteCohortsKilled = cohortsKilled[0];
-
-                    if (SiteVars.NumberCFSconifersKilled[site].ContainsKey(PlugIn.ModelCore.CurrentTime))
+                    if (_siteSeverity > 0)
                     {
-                        int prevKilled = SiteVars.NumberCFSconifersKilled[site][PlugIn.ModelCore.CurrentTime];
-                        SiteVars.NumberCFSconifersKilled[site][PlugIn.ModelCore.CurrentTime] = prevKilled + cohortsKilled[1];
+                        var killResult = KillSiteCohorts(site);
+
+                        if (SiteVars.NumberCFSconifersKilled[site].ContainsKey(PlugIn.ModelCore.CurrentTime))
+                        {
+                            int prevKilled = SiteVars.NumberCFSconifersKilled[site][PlugIn.ModelCore.CurrentTime];
+                            SiteVars.NumberCFSconifersKilled[site][PlugIn.ModelCore.CurrentTime] = prevKilled + killResult.CFSConifersKilled;
+                        }
+                        else
+                        {
+                            SiteVars.NumberCFSconifersKilled[site].Add(PlugIn.ModelCore.CurrentTime, killResult.CFSConifersKilled);
+                        }
+
+                        if (killResult.CohortsKilled > 0)
+                        {
+                            _totalCohortsKilled += killResult.CohortsKilled;
+                            _totalBiomassKilled += killResult.BiomassKilled;
+                            _totalSitesDamaged++;
+                            totalSiteSeverity += _siteSeverity;
+                            SiteVars.Disturbed[site] = true;
+                            SiteVars.TimeOfLastEvent[site] = PlugIn.ModelCore.CurrentTime;
+                            SiteVars.AgentName[site] = agent.AgentName;
+                        }
+                        else
+                            _siteSeverity = 0;
                     }
-                    else
-                    {
-                        SiteVars.NumberCFSconifersKilled[site].Add(PlugIn.ModelCore.CurrentTime, cohortsKilled[1]);
-                    }
-
-                    if (siteCohortsKilled > 0)
-                    {
-                        this.totalCohortsKilled += siteCohortsKilled;
-                        this.totalSitesDamaged++;
-                        totalSiteSeverity += this.siteSeverity;
-                        SiteVars.Disturbed[site] = true;
-                        SiteVars.TimeOfLastEvent[site] = PlugIn.ModelCore.CurrentTime;
-                        SiteVars.AgentName[site] = agent.AgentName;
-                    } else
-                        this.siteSeverity = 0;
                 }
-                agent.Severity[site] = (byte) this.siteSeverity;
+                agent.Severity[site] = (byte) _siteSeverity;
             }
-            if (this.totalSitesDamaged > 0)
-                this.meanSeverity = (double) totalSiteSeverity / (double) this.totalSitesDamaged;
+            if (_totalSitesDamaged > 0)
+                _meanSeverity = (double)totalSiteSeverity / _totalSitesDamaged;
         }
 
         //---------------------------------------------------------------------
         //A small helper function for going through list of cohorts at a site
         //and checking them with the filter provided by RemoveMarkedCohort(ICohort).
-        private int[] KillSiteCohorts(ActiveSite site)
+        private KillResult KillSiteCohorts(ActiveSite site)
         {
-            this.siteCohortsKilled = 0;
-            this.siteCFSconifersKilled = 0;
+            _siteCohortsKilled = 0;
+            _siteCFSConifersKilled = 0;
+            _biomassKilled = 0;
+            _biomassCohortCount = 0;
+            _currentSite = site;
 
-            currentSite = site;
+            var siteCohorts = SiteVars.Cohorts[site];
+            siteCohorts.RemoveMarkedCohorts(this);
+            PlugIn.ModelCore.UI.WriteLine($"BDA: Killed biomass {_biomassKilled} in {_biomassCohortCount} cohorts");
 
-            SiteVars.Cohorts[site].RemoveMarkedCohorts(this); 
-
-            int[] cohortsKilled = new int[2];
-
-            cohortsKilled[0] = this.siteCohortsKilled;
-            cohortsKilled[1] = this.siteCFSconifersKilled;
-
-
-            return cohortsKilled; 
+            return new KillResult(_siteCohortsKilled, _siteCFSConifersKilled, _biomassKilled);
         }
 
         //---------------------------------------------------------------------
-        // DamageCohort is a filter to determine which cohorts are removed.
+        // MarkCohortForDeath is a filter to determine which cohorts are removed.
         // Each cohort is passed into the function and tested whether it should
         // be killed.
         bool ICohortDisturbance.MarkCohortForDeath(ICohort cohort)
@@ -294,7 +311,7 @@ namespace Landis.Extension.BaseBDA
             bool killCohort = false;
            // bool advRegenSpp = false;
 
-            ISppParameters sppParms = epidemicParms.SppParameters[cohort.Species.Index];
+            ISppParameters sppParms = _epidemicParms.SppParameters[cohort.Species.Index];
 
             //foreach (ISpecies mySpecies in epidemicParms.AdvRegenSppList)
             //{
@@ -308,7 +325,7 @@ namespace Landis.Extension.BaseBDA
 
             if (cohort.Age >= sppParms.ResistantHostAge)
             {
-                if (this.random <= this.siteVulnerability * sppParms.ResistantHostVuln)
+                if (_random <= _siteVulnerability * sppParms.ResistantHostVuln)
                 {
                     //if (advRegenSpp && cohort.Age <= this.advRegenAgeCutoff)
                     //    killCohort = false;
@@ -319,7 +336,7 @@ namespace Landis.Extension.BaseBDA
 
             if (cohort.Age >= sppParms.TolerantHostAge)
             {
-                if (this.random <= this.siteVulnerability * sppParms.TolerantHostVuln)
+                if (_random <= _siteVulnerability * sppParms.TolerantHostVuln)
                 {
                     //if (advRegenSpp && cohort.Age <= this.advRegenAgeCutoff)
                      //   killCohort = false;
@@ -330,7 +347,7 @@ namespace Landis.Extension.BaseBDA
 
             if (cohort.Age >= sppParms.VulnerableHostAge)
             {
-                if (this.random <= this.siteVulnerability * sppParms.VulnerableHostVuln)
+                if (_random <= _siteVulnerability * sppParms.VulnerableHostVuln)
                 {
                     //if (advRegenSpp && cohort.Age <= this.advRegenAgeCutoff)
                      //   killCohort = false;
@@ -342,15 +359,19 @@ namespace Landis.Extension.BaseBDA
 
             if (killCohort)
             {
-                this.siteCohortsKilled++;
+                _siteCohortsKilled++;
                 if (sppParms.CFSConifer)
-                    this.siteCFSconifersKilled++;
+                    _siteCFSConifersKilled++;
+
+                if (cohort is Landis.Library.BiomassCohorts.ICohort)
+                {
+                    var biomassCohort = cohort as Landis.Library.BiomassCohorts.ICohort;
+                    _biomassKilled += biomassCohort.Biomass;
+                    ++_biomassCohortCount;
+                }
             }
 
             return killCohort;
         }
-
     }
-
 }
-

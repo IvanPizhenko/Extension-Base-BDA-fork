@@ -293,7 +293,6 @@ namespace Landis.Extension.BaseBDA
                               Epidemic CurrentEvent,
                               int ROS, IAgent agent)
         {
-
             EventLog.Clear();
             EventsLog el = new EventsLog();
             el.Time = currentTime;
@@ -302,6 +301,8 @@ namespace Landis.Extension.BaseBDA
             el.DamagedSites = CurrentEvent.TotalSitesDamaged;
             el.CohortsKilled = CurrentEvent.CohortsKilled;
             el.MeanSeverity = CurrentEvent.MeanSeverity;
+            // TODO change this into correct number, this one is only for testing
+            el.TotalBiomassKilled = CurrentEvent.TotalBiomassKilled;
             EventLog.AddObject(el);
             EventLog.WriteToFile();
         }
@@ -342,11 +343,10 @@ namespace Landis.Extension.BaseBDA
                 int randNum = (int)activeAgent.NormMean;
                 if (!(activeAgent.NormStDev == 0))
                 {
-                    PlugIn.ModelCore.UI.WriteLine(
-                        $"Agent '{activeAgent.AgentName}': NormMean={activeAgent.NormMean} NormStDev={activeAgent.NormStDev}");
+                    //PlugIn.ModelCore.UI.WriteLine(
+                    //    $"Agent '{activeAgent.AgentName}': NormMean={activeAgent.NormMean} NormStDev={activeAgent.NormStDev}");
                     PlugIn.ModelCore.NormalDistribution.Mu = activeAgent.NormMean;
                     PlugIn.ModelCore.NormalDistribution.Sigma = activeAgent.NormStDev;
-
                     randNum = (int)PlugIn.ModelCore.NormalDistribution.NextDouble();
                     randNum = (int)PlugIn.ModelCore.NormalDistribution.NextDouble();
                 }
