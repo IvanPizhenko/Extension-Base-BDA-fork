@@ -5,11 +5,11 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Diagnostics;
+using System.Linq;
 using Landis.Core;
 using Landis.Library.Metadata;
 using Landis.SpatialModeling;
-using System.Data;
 
 namespace Landis.Extension.BaseBDA
 {
@@ -33,12 +33,14 @@ namespace Landis.Extension.BaseBDA
         private static IInputParameters parameters;
         private static ICore modelCore;
         private bool reinitialized;
+        private readonly List<string> eventLogExtraColumns;
 
         //---------------------------------------------------------------------
 
         public PlugIn()
             : base(ExtensionName, type)
         {
+            eventLogExtraColumns = new List<string>();
         }
 
         //---------------------------------------------------------------------
@@ -47,7 +49,6 @@ namespace Landis.Extension.BaseBDA
                                             ICore mCore)
         {
             modelCore = mCore;
-            InputParameterParser.EcoregionsDataset = modelCore.Ecoregions;
             InputParameterParser parser = new InputParameterParser();
             parameters = Landis.Data.Load<IInputParameters>(dataFile, parser);
         }
@@ -71,6 +72,14 @@ namespace Landis.Extension.BaseBDA
         public override void Initialize()
         {
             reinitialized = false;
+
+            if (parameters.SelectedManagementAreas != null)
+            {
+                eventLogExtraColumns.AddRange(
+                    parameters.SelectedManagementAreas.Select(mapCode => mapCode.ToString()));
+            }
+            ExtensionMetadata.ColumnNames = new List<string>(eventLogExtraColumns);
+
             MetadataHandler.InitializeMetadata(parameters.Timestep,
                parameters.MapNamesTemplate,
                parameters.SRDMapNames,
@@ -93,34 +102,29 @@ namespace Landis.Extension.BaseBDA
                 if (activeAgent == null)
                     PlugIn.ModelCore.UI.WriteLine("Agent Parameters NOT loading correctly.");
                 activeAgent.TimeToNextEpidemic = TimeToNext(activeAgent, Timestep) + activeAgent.StartYear;
-                int timeOfNext = PlugIn.ModelCore.CurrentTime + activeAgent.TimeToNextEpidemic - activeAgent.TimeSinceLastEpidemic;
+                int timeOfNext = PlugIn.ModelCore.CurrentTime
+                    + activeAgent.TimeToNextEpidemic
+                    - activeAgent.TimeSinceLastEpidemic;
                 if (timeOfNext < Timestep)
                     timeOfNext = Timestep;
                 if (timeOfNext < activeAgent.StartYear)
                     timeOfNext = activeAgent.StartYear;
                 SiteVars.TimeOfNext.ActiveSiteValues = timeOfNext;
 
-                int i = 0;
-
-                activeAgent.DispersalNeighbors
-                    = GetDispersalNeighborhood(activeAgent, Timestep);
+                activeAgent.DispersalNeighbors = GetDispersalNeighborhood(activeAgent, Timestep);
                 if (activeAgent.DispersalNeighbors != null)
                 {
-                    foreach (RelativeLocation reloc in activeAgent.DispersalNeighbors) i++;
-                    PlugIn.ModelCore.UI.WriteLine("Dispersal Neighborhood = {0} neighbors.", i);
+                    PlugIn.ModelCore.UI.WriteLine("Dispersal Neighborhood = {0} neighbors.",
+                        activeAgent.DispersalNeighbors.Count());
                 }
 
-                i = 0;
                 activeAgent.ResourceNeighbors = GetResourceNeighborhood(activeAgent);
                 if (activeAgent.ResourceNeighbors != null)
                 {
-                    foreach (RelativeLocationWeighted reloc in activeAgent.ResourceNeighbors) i++;
-                    PlugIn.ModelCore.UI.WriteLine("Resource Neighborhood = {0} neighbors.", i);
+                    PlugIn.ModelCore.UI.WriteLine("Resource Neighborhood = {0} neighbors.",
+                        activeAgent.ResourceNeighbors.Count());
                 }
-
             }
-
-
 
             //string logFileName = parameters.LogFileName;
             //PlugIn.ModelCore.UI.WriteLine("Opening BDA log file \"{0}\" ...", logFileName);
@@ -128,13 +132,26 @@ namespace Landis.Extension.BaseBDA
             //log.AutoFlush = true;
             //log.Write("CurrentTime, ROS, AgentName, NumCohortsKilled, NumSitesDamaged, MeanSeverity");
             //log.WriteLine("");
-
         }
 
         public override void InitializePhase2()
         {
-                SiteVars.InitializeTimeOfLastDisturbances();
-                reinitialized = true;
+            SiteVars.InitializeExternalVars();
+
+            if (parameters.SelectedManagementAreas != null)
+            {
+                if (SiteVars.ManagementArea == null)
+                {
+                    throw new ApplicationException("BaseBDA: SelectedManagementAreas specified, " +
+                        "but required management area information is not available. Please make sure that you use " +
+                        "either patched Biomass Harvest Extension directly or through the SOSIEL Harvest Extension " +
+                        "in the Mode 2 and have 'ExposeManagementAreasForSites yes' set in the " +
+                        "Biomass Harvest Extension configuration file."
+                        );
+                }
+            }
+
+            reinitialized = true;
         }
 
         //---------------------------------------------------------------------
@@ -161,10 +178,8 @@ namespace Landis.Extension.BaseBDA
                 if(ROS > 0)
                 {
                     Epidemic.Initialize(activeAgent);
-                    Epidemic currentEpic = Epidemic.Simulate(activeAgent,
-                        PlugIn.ModelCore.CurrentTime,
-                        Timestep,
-                        ROS);
+                    Epidemic currentEpic = Epidemic.Simulate(
+                        activeAgent, Timestep, ROS, parameters.SelectedManagementAreas);
                     //activeAgent.TimeSinceLastEpidemic = activeAgent.TimeSinceLastEpidemic + Timestep;
 
                     if (currentEpic != null)
@@ -198,6 +213,7 @@ namespace Landis.Extension.BaseBDA
                                 }
                             }
                         }
+
                         if (!(srdMapNames == null))
                         {
                             //----- Write BDA SRD maps --------
@@ -209,7 +225,7 @@ namespace Landis.Extension.BaseBDA
                                 {
                                     if (site.IsActive)
                                     {
-                                        pixel.MapCode.Value = (short) System.Math.Round(SiteVars.SiteResourceDom[site] * 100.00);
+                                        pixel.MapCode.Value = (short) Math.Round(SiteVars.SiteResourceDom[site] * 100.00);
                                     }
                                     else
                                     {
@@ -220,6 +236,7 @@ namespace Landis.Extension.BaseBDA
                                 }
                             }
                         }
+
                         if (!(nrdMapNames == null))
                         {
                             //----- Write BDA NRD maps --------
@@ -232,7 +249,7 @@ namespace Landis.Extension.BaseBDA
                                 {
                                     if (site.IsActive)
                                     {
-                                        pixel.MapCode.Value = (short)System.Math.Round(SiteVars.NeighborResourceDom[site] * 100.00);
+                                        pixel.MapCode.Value = (short)Math.Round(SiteVars.NeighborResourceDom[site] * 100.00);
                                     }
                                     else
                                     {
@@ -243,6 +260,7 @@ namespace Landis.Extension.BaseBDA
                                 }
                             }
                         }
+
                         if (!(vulnMapNames == null))
                         {
                             //----- Write BDA Vulnerability maps --------
@@ -255,7 +273,7 @@ namespace Landis.Extension.BaseBDA
                                 {
                                     if (site.IsActive)
                                     {
-                                        pixel.MapCode.Value = (short)System.Math.Round(SiteVars.Vulnerability[site] * 100.00);
+                                        pixel.MapCode.Value = (short)Math.Round(SiteVars.Vulnerability[site] * 100.00);
                                     }
                                     else
                                     {
@@ -289,6 +307,7 @@ namespace Landis.Extension.BaseBDA
         }
         */
         //---------------------------------------------------------------------
+
         private void LogEvent(int currentTime,
                               Epidemic CurrentEvent,
                               int ROS, IAgent agent)
@@ -301,11 +320,16 @@ namespace Landis.Extension.BaseBDA
             el.DamagedSites = CurrentEvent.TotalSitesDamaged;
             el.CohortsKilled = CurrentEvent.CohortsKilled;
             el.MeanSeverity = CurrentEvent.MeanSeverity;
-            // TODO change this into correct number, this one is only for testing
             el.TotalBiomassKilled = CurrentEvent.TotalBiomassKilled;
+            el.DamagedSitesInMA = CurrentEvent.TotalSitesDamagedInSelectedManagementAreas.Select(v => (double)v).ToArray();
+            el.CohortsKilledInMA = CurrentEvent.CohortsKilledInSelectedManagementAreas.Select(v => (double)v).ToArray();
+            el.TotalBiomassKilledInMA = CurrentEvent.TotalBiomassKilledInSelectedManagementAreas.Select(v => (double)v).ToArray();
+            ExtensionMetadata.ColumnNames = new List<string>(eventLogExtraColumns);
             EventLog.AddObject(el);
+            //Debugger.Launch();
             EventLog.WriteToFile();
         }
+
         //---------------------------------------------------------------------
         /*private IOutputRaster<ShortPixel> CreateMap(int currentTime, string agentName)
         {
@@ -450,10 +474,8 @@ namespace Landis.Extension.BaseBDA
                         if(agent.ShapeOfNeighbor == NeighborShape.gaussian)
                         {
                             double halfRadius = neighborRadius / 2;
-                                neighborWeight = (float)
-                                System.Math.Exp(-1 *
-                                System.Math.Pow(centroidDistance, 2) /
-                                System.Math.Pow(halfRadius, 2));
+                            neighborWeight = (float)
+                                Math.Exp(-1 * Math.Pow(centroidDistance, 2) / Math.Pow(halfRadius, 2));
                         }
 
                         RelativeLocation reloc = new RelativeLocation(row, col);
@@ -522,11 +544,11 @@ namespace Landis.Extension.BaseBDA
         private static double DistanceFromCenter(double row, double column)
         {
             double CellLength = PlugIn.ModelCore.CellLength;
-            row = System.Math.Abs(row) * CellLength;
-            column = System.Math.Abs(column) * CellLength;
-            double aSq = System.Math.Pow(column,2);
-            double bSq = System.Math.Pow(row,2);
-            return System.Math.Sqrt(aSq + bSq);
+            row = Math.Abs(row) * CellLength;
+            column = Math.Abs(column) * CellLength;
+            double aSq = Math.Pow(column,2);
+            double bSq = Math.Pow(row,2);
+            return Math.Sqrt(aSq + bSq);
         }
 
 

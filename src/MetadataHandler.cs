@@ -2,13 +2,11 @@
 //  Authors:  Robert M. Scheller, Brian Miranda
 //  BDA originally programmed by Wei (Vera) Li at University of Missouri-Columbia in 2004.
 
-using System;
 using System.Collections.Generic;
-using System.Linq;
-//using System.Text;
+
 using Landis.Library.Metadata;
-using Landis.Utilities;
 using Landis.Core;
+using System.Diagnostics;
 
 namespace Landis.Extension.BaseBDA
 {
@@ -49,6 +47,7 @@ namespace Landis.Extension.BaseBDA
             {
                 System.IO.Directory.CreateDirectory(logDir);
             }
+
             PlugIn.EventLog = new MetadataTable<EventsLog>(logFileName);
 
             OutputMetadata tblOut_events = new OutputMetadata()
@@ -73,8 +72,8 @@ namespace Landis.Extension.BaseBDA
             //Extension.OutputMetadatas.Add(tblOut_PDSI);
 
 
-            //---------------------------------------            
-            //          map outputs:         
+            //---------------------------------------
+            //          map outputs:
             //---------------------------------------
 
             foreach (IAgent activeAgent in manyAgentParameters)
@@ -122,13 +121,9 @@ namespace Landis.Extension.BaseBDA
                     Extension.OutputMetadatas.Add(mapOut_NRD);
                 }
             }
-            //---------------------------------------
+
             MetadataProvider mp = new MetadataProvider(Extension);
             mp.WriteMetadataToXMLFile("Metadata", Extension.Name, Extension.Name);
-
-
-
-
         }
     }
 }

@@ -29,5 +29,17 @@ namespace Landis.Extension.BaseBDA
 
         [DataField(Unit = FieldUnits.Count, Desc = "Total Biomass Killed")]
         public long TotalBiomassKilled { set; get; }
+
+        // I had to make this 'double' because metadata library doesn't understand any other array types
+        [DataField(Unit = FieldUnits.Count, Desc = "Number of Cohorts Killed in the selected MAs", ColumnList = true)]
+        public double[] CohortsKilledInMA { set; get; }
+
+        // I had to make this 'double' because metadata library doesn't understand any other array types
+        [DataField(Unit = FieldUnits.Count, Desc = "Number of Damaged Sites in Event in the selected MAs", ColumnList = true)]
+        public double[] DamagedSitesInMA { set; get; }
+
+        // I had to make this 'double' because metadata library doesn't understand any other array types
+        [DataField(Unit = FieldUnits.Count, Desc = "Total Biomass Killed in the selected MAs", ColumnList = true)]
+        public double[] TotalBiomassKilledInMA { set; get; }
     }
 }
